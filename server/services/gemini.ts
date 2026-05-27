@@ -18,6 +18,20 @@ export class GeminiService {
     temperature?: number;
     maxOutputTokens?: number;
   }): Promise<unknown> {
+    const result = await this.generateJsonWithMetadata(input);
+    return result.value;
+  }
+
+  async generateJsonWithMetadata(input: {
+    model: string;
+    systemInstruction: string;
+    prompt: string;
+    contents?: unknown;
+    tools?: unknown[];
+    responseSchema: unknown;
+    temperature?: number;
+    maxOutputTokens?: number;
+  }): Promise<{ value: unknown; automaticFunctionCallingHistory: unknown[]; text: string }> {
     return this.withRetries(async () => {
       const response = await this.ai.models.generateContent({
         model: input.model,
@@ -37,7 +51,11 @@ export class GeminiService {
         throw new Error('Gemini returned an empty JSON response');
       }
       try {
-        return JSON.parse(text);
+        return {
+          value: JSON.parse(text),
+          automaticFunctionCallingHistory: (response as any).automaticFunctionCallingHistory ?? [],
+          text,
+        };
       } catch (error) {
         throw new Error(`Gemini returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
       }

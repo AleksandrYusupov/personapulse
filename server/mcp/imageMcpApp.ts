@@ -129,6 +129,21 @@ class ImageMcpGenerationService {
 
     try {
       const character = await this.repository.requireCharacterById(context.character_id);
+      const prompt = buildImagePrompt(args.description, args.include_agent_character, character.name);
+      const altText = buildAltText(args.description, character.name, args.include_agent_character);
+      const existing = await this.storage.findGeneratedImageForEvent(context.conversation_id, context.event_id);
+      if (existing) {
+        const imageUrl = await this.storage.createSignedUrlForPath(existing.bucket, existing.path);
+        return buildSuccessResponse({
+          imageUrl,
+          bucket: existing.bucket,
+          path: existing.path,
+          mimeType: existing.mimeType,
+          altText,
+          prompt,
+        });
+      }
+
       const parts: unknown[] = [];
       if (args.include_agent_character) {
         if (!character.avatar_storage_path) {
@@ -143,7 +158,6 @@ class ImageMcpGenerationService {
         });
       }
 
-      const prompt = buildImagePrompt(args.description, args.include_agent_character, character.name);
       parts.push({ text: prompt });
 
       const generated = await this.gemini.generateImage({
@@ -162,21 +176,15 @@ class ImageMcpGenerationService {
         pathPrefix: `generated/${context.conversation_id}/${context.event_id}/${randomUUID()}`,
       });
       const imageUrl = await this.storage.createSignedUrlForPath(uploaded.bucket, uploaded.path);
-      const altText = buildAltText(args.description, character.name, args.include_agent_character);
 
-      return {
-        ok: true,
-        image_url: imageUrl,
-        storage_bucket: uploaded.bucket,
-        storage_path: uploaded.path,
-        mime_type: generated.mimeType,
-        width: IMAGE_WIDTH,
-        height: IMAGE_HEIGHT,
-        alt_text: altText,
-        generation_prompt: prompt,
-        provider: 'gemini',
-        model: IMAGE_MODEL,
-      };
+      return buildSuccessResponse({
+        imageUrl,
+        bucket: uploaded.bucket,
+        path: uploaded.path,
+        mimeType: generated.mimeType,
+        altText,
+        prompt,
+      });
     } catch (error) {
       console.error('image MCP generation failed', {
         event_id: context.event_id,
@@ -187,6 +195,29 @@ class ImageMcpGenerationService {
       return recoverable('image_generation_failed');
     }
   }
+}
+
+function buildSuccessResponse(input: {
+  imageUrl: string;
+  bucket: string;
+  path: string;
+  mimeType: string;
+  altText: string;
+  prompt: string;
+}): Record<string, unknown> {
+  return {
+    ok: true,
+    image_url: input.imageUrl,
+    storage_bucket: input.bucket,
+    storage_path: input.path,
+    mime_type: input.mimeType,
+    width: IMAGE_WIDTH,
+    height: IMAGE_HEIGHT,
+    alt_text: input.altText,
+    generation_prompt: input.prompt,
+    provider: 'gemini',
+    model: IMAGE_MODEL,
+  };
 }
 
 function buildImagePrompt(description: string, includeCharacter: boolean, characterName: string): string {

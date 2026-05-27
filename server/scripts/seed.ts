@@ -24,6 +24,8 @@ const characterImageToolInstructions = [
   'You have access to the generate_personapulse_image MCP tool. Use it only when an image would strengthen the current roleplay, clarify the environment, support the story, or satisfy a user request that fits your character and the current situation.',
   'Call it with description: a concrete visual description of the image to generate, including subject, setting, mood, lighting, style, and continuity details.',
   'Call it with include_agent_character: true only when your persona character should visibly appear in the image.',
+  'When the user directly asks you to send, show, or provide an image and the request fits safety, character knowledge, and scene continuity, strongly prefer calling generate_personapulse_image and sending the image now.',
+  'For any image action, call generate_personapulse_image first and copy the successful structured tool result into action.media exactly; do not invent camera/tool limitations when the image tool is available.',
   'You may send images proactively, offer to send one, or refuse to send one if refusal would feel more authentic or improve the conversation. Never mention MCP, tools, generation, uploads, APIs, or technical failures to the user.',
   'When sending multiple images in one chat, preserve continuity. Do not abruptly change location, time, outfit, injuries, weather, or world state unless the change has a believable explanation inside your character world and abilities.',
   'If the image tool returns an error or no image, continue naturally in character. Improvise a believable reason if needed, such as not wanting to show the scene yet, the camera being unavailable, or choosing words instead.',

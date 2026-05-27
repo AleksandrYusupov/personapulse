@@ -74,6 +74,32 @@ export class StorageService {
     return { bucket: this.config.mediaBucket, path };
   }
 
+  async findGeneratedImageForEvent(conversationId: string, eventId: string): Promise<{ bucket: string; path: string; mimeType: string } | null> {
+    const folder = `generated/${conversationId}/${eventId}`;
+    const { data, error } = await this.supabase
+      .storage
+      .from(this.config.mediaBucket)
+      .list(folder, {
+        limit: 1,
+        offset: 0,
+        sortBy: { column: 'created_at', order: 'asc' },
+      });
+
+    if (error) {
+      throw new Error(`Failed to list generated images for ${folder}: ${error.message}`);
+    }
+
+    const file = data?.find((item) => item.name && item.id);
+    if (!file) return null;
+
+    const metadata = (file as any).metadata ?? {};
+    return {
+      bucket: this.config.mediaBucket,
+      path: `${folder}/${file.name}`,
+      mimeType: typeof metadata.mimetype === 'string' ? metadata.mimetype : inferMimeType(file.name),
+    };
+  }
+
   async downloadObject(bucket: string, path: string): Promise<{ data: Buffer; mimeType: string }> {
     const { data, error } = await this.supabase
       .storage

@@ -265,8 +265,7 @@ export class AgentPipeline {
 
     try {
       const promptText = buildPrompt(prompt, input);
-      const output = validateCharacterOutput(
-        await this.gemini.generateJson({
+      const result = await this.gemini.generateJsonWithMetadata({
           model: prompt.model,
           systemInstruction: prompt.systemPrompt,
           prompt: promptText,
@@ -275,7 +274,9 @@ export class AgentPipeline {
           responseSchema: prompt.responseSchema,
           temperature: numberFromConfig(prompt.modelConfig.temperature, 0.65),
           maxOutputTokens: numberFromConfig(prompt.modelConfig.maxOutputTokens, 5000),
-        }),
+        });
+      const output = validateCharacterOutput(
+        mergeMcpMediaIntoCharacterOutput(result.value, result.automaticFunctionCallingHistory),
         event.id,
       );
       return { output, compiledInput: input };
@@ -588,6 +589,80 @@ function extractActionImageMedia(output: Record<string, any>) {
     height: typeof media.height === 'number' ? media.height : null,
     provider: typeof media.provider === 'string' ? media.provider : 'gemini',
     model: typeof media.model === 'string' ? media.model : null,
+  };
+}
+
+function mergeMcpMediaIntoCharacterOutput(value: unknown, automaticFunctionCallingHistory: unknown[]): unknown {
+  const output = value as Record<string, any>;
+  if (!output || typeof output !== 'object' || !output.action || typeof output.action !== 'object') return value;
+
+  const media = extractSuccessfulImageToolMedia(automaticFunctionCallingHistory);
+  if (!media) return value;
+
+  const action = output.action as Record<string, any>;
+  if (!['send_image', 'send_text_image', 'send_text'].includes(action.type)) return value;
+  const currentMedia = action.media;
+  if (!currentMedia || typeof currentMedia !== 'object' || currentMedia.ok !== true) {
+    action.media = media;
+  }
+
+  if (action.type === 'send_text') {
+    action.type = 'send_text_image';
+  }
+
+  return output;
+}
+
+function extractSuccessfulImageToolMedia(automaticFunctionCallingHistory: unknown[]): Record<string, any> | null {
+  for (const content of [...automaticFunctionCallingHistory].reverse()) {
+    const parts = Array.isArray((content as any)?.parts) ? (content as any).parts : [];
+    for (const part of [...parts].reverse()) {
+      const functionResponse = (part as any)?.functionResponse ?? (part as any)?.function_response;
+      if (functionResponse?.name !== 'generate_personapulse_image') continue;
+      const media = extractStructuredImageToolResult(functionResponse.response);
+      if (media) return media;
+    }
+  }
+  return null;
+}
+
+function extractStructuredImageToolResult(response: unknown): Record<string, any> | null {
+  if (!response || typeof response !== 'object') return null;
+  const record = response as Record<string, any>;
+  const direct = normalizeImageToolMedia(record);
+  if (direct) return direct;
+
+  const structured = normalizeImageToolMedia(record.structuredContent ?? record.structured_content);
+  if (structured) return structured;
+
+  const content = Array.isArray(record.content) ? record.content : [];
+  for (const item of content) {
+    if ((item as any)?.type !== 'text' || typeof (item as any).text !== 'string') continue;
+    try {
+      const parsed = JSON.parse((item as any).text);
+      const parsedMedia = normalizeImageToolMedia(parsed);
+      if (parsedMedia) return parsedMedia;
+    } catch (_) {
+      // MCP text content can be human-readable; only JSON tool payloads are useful here.
+    }
+  }
+
+  return null;
+}
+
+function normalizeImageToolMedia(value: unknown): Record<string, any> | null {
+  if (!value || typeof value !== 'object') return null;
+  const media = value as Record<string, any>;
+  const bucket = media.storage_bucket ?? media.bucket;
+  const path = media.storage_path ?? media.path;
+  if (media.ok !== true || typeof bucket !== 'string' || !bucket.trim() || typeof path !== 'string' || !path.trim()) {
+    return null;
+  }
+  return {
+    ...media,
+    ok: true,
+    storage_bucket: bucket,
+    storage_path: path,
   };
 }
 
