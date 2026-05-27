@@ -1,0 +1,6 @@
+{
+  "name": "Character Arena",
+  "description": "An immersive and visually stunning interactive character chat experience in a sleek modern gaming aesthetic, featuring rich animations and deep personalization.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
