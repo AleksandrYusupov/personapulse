@@ -31,6 +31,7 @@ export default function CharacterPanel({ character, currentMood, onSelectPrompt 
           src={character.avatar}
           alt={character.name}
           className="w-full h-full object-cover select-none transition-transform duration-500 ease-out group-hover:scale-105"
+          style={{ objectPosition: character.avatarObjectPosition || 'center' }}
           referrerPolicy="no-referrer"
         />
 

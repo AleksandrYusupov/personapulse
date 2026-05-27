@@ -37,6 +37,7 @@ export default function CharacterCard({ character, onSelect }: CharacterCardProp
           src={character.avatar}
           alt={character.name}
           className="h-full w-full object-cover transition-transform duration-700 ease-out group-hover:scale-104 select-none"
+          style={{ objectPosition: character.avatarObjectPosition || 'center' }}
           referrerPolicy="no-referrer"
         />
 

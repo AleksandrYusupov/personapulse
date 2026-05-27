@@ -38,6 +38,17 @@ import {
 
 const PENDING_SESSION_PREFIX = 'pending-dialog';
 
+const CHARACTER_FILTERS = [
+  { id: 'ALL', label: 'ALL FILES', slugs: null },
+  { id: 'CYBER', label: 'CYBERNETIC SPECIALIST', slugs: ['astrid'] },
+  { id: 'SORCERER', label: 'VOID SORCERER', slugs: ['kaelen'] },
+  { id: 'AVIATOR', label: 'SKY INVENTOR', slugs: ['lyra'] },
+  { id: 'SIGNAL', label: 'SIGNAL ARCHITECT', slugs: ['nexus'] },
+  { id: 'VILTRUMITE', label: 'VILTRUMITE ENFORCER', slugs: ['anissa'] },
+  { id: 'FIRE_NATION', label: 'FIRE NATION STRATEGIST', slugs: ['azula'] },
+  { id: 'CHAOS', label: 'CHAOS DIVINITY', slugs: ['eris'] },
+] as const;
+
 interface PendingQueuedMessage {
   tempId: string;
   clientMessageId: string;
@@ -112,6 +123,12 @@ function findLastSendingMessage(messages: Message[]): Message | undefined {
     if (messages[index].sendStatus) return messages[index];
   }
   return undefined;
+}
+
+function matchesCharacterFilter(characterId: string, filterId: string): boolean {
+  const filter = CHARACTER_FILTERS.find((item) => item.id === filterId);
+  if (!filter || filter.slugs === null) return true;
+  return (filter.slugs as readonly string[]).includes(characterId);
 }
 
 export default function App() {
@@ -242,11 +259,7 @@ export default function App() {
       char.shortDesc.toLowerCase().includes(query) ||
       char.role.toLowerCase().includes(query);
 
-    const matchesFilter =
-      activeFilter === 'ALL' ||
-      (activeFilter === 'CYBER' && char.id === 'astrid') ||
-      (activeFilter === 'SORCERER' && char.id === 'kaelen') ||
-      (activeFilter === 'AVIATOR' && char.id === 'lyra');
+    const matchesFilter = matchesCharacterFilter(char.id, activeFilter);
 
     return matchesSearch && matchesFilter;
   }), [activeFilter, characters, searchQuery]);
@@ -644,12 +657,7 @@ export default function App() {
               </div>
 
               <div className="flex flex-wrap gap-2.5">
-                {[
-                  { id: 'ALL', label: 'ALL FILES' },
-                  { id: 'CYBER', label: 'CYBERNETIC SPECIALIST' },
-                  { id: 'SORCERER', label: 'VOID SORCERER' },
-                  { id: 'AVIATOR', label: 'SKY INVENTOR' },
-                ].map((chip) => {
+                {CHARACTER_FILTERS.map((chip) => {
                   const isActive = activeFilter === chip.id;
                   return (
                     <motion.button
