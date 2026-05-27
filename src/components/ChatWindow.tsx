@@ -1,13 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Character, Message } from '../types';
-import { Send, Zap, ChevronRight, Sparkles, Smile, ArrowDown } from 'lucide-react';
+import { Character, Message, MessageMedia } from '../types';
+import { Send, Zap, ChevronRight, Sparkles, Smile, ArrowDown, X, Maximize2 } from 'lucide-react';
 
 interface ChatWindowProps {
   character: Character;
   messages: Message[];
   onSendMessage: (text: string) => void;
   onRetryMessage: (message: Message) => void;
+  onMediaOpen?: () => void;
+  onMediaClose?: () => void;
   isTyping: boolean;
   currentMood: string;
 }
@@ -17,12 +19,16 @@ export default function ChatWindow({
   messages,
   onSendMessage,
   onRetryMessage,
+  onMediaOpen,
+  onMediaClose,
   isTyping,
   currentMood,
 }: ChatWindowProps) {
   const [inputText, setInputText] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [selectedMedia, setSelectedMedia] = useState<MessageMedia | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const lastMediaTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [showScrollDownBtn, setShowScrollDownBtn] = useState(false);
 
   const handleSend = (e: React.FormEvent) => {
@@ -54,6 +60,27 @@ export default function ChatWindow({
   useEffect(() => {
     scrollToBottom();
   }, [messages, isTyping]);
+
+  useEffect(() => {
+    if (!selectedMedia) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeMediaViewer();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [selectedMedia]);
+
+  const openMediaViewer = (media: MessageMedia, trigger: HTMLButtonElement) => {
+    lastMediaTriggerRef.current = trigger;
+    setSelectedMedia(media);
+    onMediaOpen?.();
+  };
+
+  const closeMediaViewer = () => {
+    setSelectedMedia(null);
+    onMediaClose?.();
+    window.setTimeout(() => lastMediaTriggerRef.current?.focus(), 0);
+  };
 
   const quickEmojis = ['⚡', '🔮', '⚙️', '🎵', '🔥', '💀', '🤖', '👑'];
 
@@ -115,15 +142,25 @@ export default function ChatWindow({
                       }}
                     >
                       {msg.media && msg.media.length > 0 && (
-                        <div className="mb-3 grid gap-2">
+                        <div className="mb-3 flex flex-wrap gap-2">
                           {msg.media.map((media) => (
-                            <img
+                            <button
                               key={media.id}
-                              src={media.url}
-                              alt={media.altText}
-                              className="max-h-80 w-full rounded-xl border border-zinc-800 object-cover"
-                              referrerPolicy="no-referrer"
-                            />
+                              type="button"
+                              onClick={(event) => openMediaViewer(media, event.currentTarget)}
+                              className="group/media relative aspect-[3/4] w-[min(44vw,180px)] overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950 shadow-md outline-none transition hover:border-[#ECFF19]/50 focus-visible:border-[#ECFF19] focus-visible:ring-2 focus-visible:ring-[#ECFF19]/30 sm:w-[190px]"
+                              aria-label={`Open image: ${media.altText || 'chat image'}`}
+                            >
+                              <img
+                                src={media.url}
+                                alt={media.altText}
+                                className="h-full w-full object-cover"
+                                referrerPolicy="no-referrer"
+                              />
+                              <span className="absolute right-2 top-2 grid h-7 w-7 place-items-center rounded border border-black/30 bg-black/45 text-zinc-100 opacity-0 backdrop-blur transition group-hover/media:opacity-100 group-focus-visible/media:opacity-100">
+                                <Maximize2 className="h-3.5 w-3.5" />
+                              </span>
+                            </button>
                           ))}
                         </div>
                       )}
@@ -190,6 +227,43 @@ export default function ChatWindow({
           </AnimatePresence>
         </div>
       </div>
+
+      <AnimatePresence>
+        {selectedMedia && (
+          <motion.div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4 backdrop-blur-md"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) closeMediaViewer();
+            }}
+            role="dialog"
+            aria-modal="true"
+            aria-label={selectedMedia.altText || 'Image viewer'}
+          >
+            <button
+              type="button"
+              onClick={closeMediaViewer}
+              className="absolute right-4 top-4 grid h-10 w-10 place-items-center rounded border border-white/15 bg-zinc-950/80 text-zinc-100 backdrop-blur transition hover:border-[#ECFF19]/50 hover:text-[#ECFF19] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ECFF19]/40"
+              aria-label="Close image viewer"
+            >
+              <X className="h-5 w-5" />
+            </button>
+            <motion.img
+              key={selectedMedia.id}
+              src={selectedMedia.url}
+              alt={selectedMedia.altText}
+              className="max-h-[92vh] max-w-[92vw] rounded-lg border border-white/10 object-contain shadow-2xl"
+              referrerPolicy="no-referrer"
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.98 }}
+              transition={{ duration: 0.16, ease: 'easeOut' }}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Floating Scroll Down button */}
       <AnimatePresence>

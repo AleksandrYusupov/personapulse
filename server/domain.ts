@@ -57,6 +57,9 @@ export interface MediaRow {
   width: number | null;
   height: number | null;
   alt_text: string | null;
+  generation_prompt?: string | null;
+  provider?: string | null;
+  created_at?: string;
 }
 
 export interface TimelineEventRow {

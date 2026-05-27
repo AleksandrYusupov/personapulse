@@ -3,15 +3,12 @@ import { AppConfig } from '../config';
 import { MessageRow, ProcessingJobRow, TimelineEventRow } from '../domain';
 import { hashJson, newId } from '../util/crypto';
 import { GeminiService } from './gemini';
+import { createImageMcpToolSession } from './imageMcpClient';
 import { buildMetricDelta, buildMetricSnapshot } from './metrics';
 import { PromptRegistry, ResolvedPrompt } from './promptRegistry';
 import { Repository } from './repository';
 import { StorageService } from './storage';
 import { validateCharacterOutput, validateMoodOutput } from './validation';
-
-const MIN_SILENCE_TIMER_SECONDS = 5;
-const MAX_SILENCE_TIMER_SECONDS = 10;
-const DEFAULT_SILENCE_TIMER_SECONDS = 7;
 
 export class AgentPipeline {
   constructor(
@@ -191,28 +188,31 @@ export class AgentPipeline {
       throw new Error(`character_agent requires mood and metrics for event ${event.id}`);
     }
     const hypotheses = context.hypotheses ?? [];
-    const compiledInput = { event, messages: messages.map(compactMessage), mood, metric, delta, hypotheses };
+    const unansweredCharacterMessageCount = countUnansweredCharacterMessages(messages);
+    const baseCompiledInput = {
+      event,
+      messages: messages.map(compactMessage),
+      mood,
+      metric,
+      delta,
+      hypotheses,
+      unanswered_character_message_count: unansweredCharacterMessageCount,
+      image_tool_unavailable: false,
+    };
 
     started = Date.now();
-    const output = validateCharacterOutput(
-      await this.gemini.generateJson({
-        model: prompt.model,
-        systemInstruction: prompt.systemPrompt,
-        prompt: buildPrompt(prompt, compiledInput),
-        responseSchema: prompt.responseSchema,
-        temperature: numberFromConfig(prompt.modelConfig.temperature, 0.65),
-        maxOutputTokens: numberFromConfig(prompt.modelConfig.maxOutputTokens, 5000),
-      }),
-      event.id,
-    );
+    const modelResult = await this.runCharacterModel(prompt, baseCompiledInput, messages, event);
+    const output = modelResult.output;
+    const compiledInput = modelResult.compiledInput;
     stageMs.model = Date.now() - started;
 
     started = Date.now();
-    const imageMedia = await this.generateImageIfRequested(output, event);
+    const imageMedia = extractActionImageMedia(output);
     stageMs.image = Date.now() - started;
 
     started = Date.now();
     const agentRunId = newId();
+    const silence = computeSilenceTimer(output, unansweredCharacterMessageCount, this.config);
     await this.repository.commitCharacterJobResult({
       jobId: job.id,
       agentRunId,
@@ -232,12 +232,77 @@ export class AgentPipeline {
             mimeType: imageMedia.mimeType,
             altText: imageMedia.altText,
             prompt: imageMedia.prompt,
+            width: imageMedia.width,
+            height: imageMedia.height,
+            provider: imageMedia.provider,
+            model: imageMedia.model,
           }
         : null,
-      pauseSeconds: clampSilencePauseSeconds(output),
+      pauseSeconds: silence.pauseSeconds,
+      stopUntilUser: silence.stopUntilUser,
       stageMs: { ...stageMs, total_before_commit: Date.now() - stageStarted },
     });
     stageMs.commit = Date.now() - started;
+  }
+
+  private async runCharacterModel(
+    prompt: ResolvedPrompt,
+    compiledInput: Record<string, unknown>,
+    messages: MessageRow[],
+    event: TimelineEventRow,
+  ): Promise<{ output: Record<string, any>; compiledInput: Record<string, unknown> }> {
+    let toolSession = null as Awaited<ReturnType<typeof createImageMcpToolSession>> | null;
+    let input = compiledInput;
+    try {
+      toolSession = await createImageMcpToolSession(this.config, event);
+    } catch (error) {
+      console.error('image MCP unavailable before character generation', error);
+      input = { ...compiledInput, image_tool_unavailable: true };
+    }
+    if (!toolSession) {
+      input = { ...compiledInput, image_tool_unavailable: true };
+    }
+
+    try {
+      const promptText = buildPrompt(prompt, input);
+      const result = await this.gemini.generateJsonWithMetadata({
+          model: prompt.model,
+          systemInstruction: prompt.systemPrompt,
+          prompt: promptText,
+          contents: await buildMultimodalPromptContents(promptText, messages, this.storage, this.config),
+          tools: toolSession?.tools,
+          responseSchema: prompt.responseSchema,
+          temperature: numberFromConfig(prompt.modelConfig.temperature, 0.65),
+          maxOutputTokens: numberFromConfig(prompt.modelConfig.maxOutputTokens, 5000),
+        });
+      const output = validateCharacterOutput(
+        mergeMcpMediaIntoCharacterOutput(result.value, result.automaticFunctionCallingHistory),
+        event.id,
+      );
+      return { output, compiledInput: input };
+    } catch (error) {
+      if (!toolSession) throw error;
+      console.error('character generation with image MCP failed; retrying without image tool', error);
+      input = { ...compiledInput, image_tool_unavailable: true };
+      const promptText = buildPrompt(prompt, input);
+      const output = validateCharacterOutput(
+        await this.gemini.generateJson({
+          model: prompt.model,
+          systemInstruction: prompt.systemPrompt,
+          prompt: promptText,
+          contents: await buildMultimodalPromptContents(promptText, messages, this.storage, this.config),
+          responseSchema: prompt.responseSchema,
+          temperature: numberFromConfig(prompt.modelConfig.temperature, 0.65),
+          maxOutputTokens: numberFromConfig(prompt.modelConfig.maxOutputTokens, 5000),
+        }),
+        event.id,
+      );
+      return { output, compiledInput: input };
+    } finally {
+      if (toolSession) {
+        await toolSession.close().catch(() => undefined);
+      }
+    }
   }
 
   private async discardIfStale(job: ProcessingJobRow, event: TimelineEventRow): Promise<boolean> {
@@ -346,39 +411,6 @@ export class AgentPipeline {
     `;
   }
 
-  private async generateImageIfRequested(output: Record<string, any>, event: TimelineEventRow) {
-    if (!['send_image', 'send_text_image'].includes(output.action.type)) {
-      return null;
-    }
-
-    const toolCall = Array.isArray(output.action.tool_calls)
-      ? output.action.tool_calls.find((call: any) => call?.tool_name === 'generate_image')
-      : null;
-    const prompt = toolCall?.arguments?.prompt;
-    if (typeof prompt !== 'string' || !prompt.trim()) {
-      throw new Error('Image action requires generate_image tool call with prompt');
-    }
-
-    const imagePrompt = await this.promptRegistry.resolve({ agentKey: 'image_prompt_builder' });
-    const generated = await this.gemini.generateImage({
-      model: imagePrompt.model,
-      prompt,
-    });
-    const uploaded = await this.storage.uploadGeneratedImage({
-      conversationId: event.conversation_id,
-      eventId: event.id,
-      data: generated.data,
-      mimeType: generated.mimeType,
-    });
-
-    return {
-      ...uploaded,
-      mimeType: generated.mimeType,
-      altText: typeof toolCall.arguments?.alt_text === 'string' ? toolCall.arguments.alt_text : 'Generated PersonaPulse image',
-      prompt,
-    };
-  }
-
   private async applyPreviousHypothesisAssessment(tx: any, output: Record<string, any>, event: TimelineEventRow, agentRunId: string) {
     const assessment = output.previous_hypothesis_assessment;
     if (!assessment?.hypothesis_id || assessment.assessment === 'not_applicable') return;
@@ -433,43 +465,6 @@ export class AgentPipeline {
     `;
   }
 
-  private async scheduleSilenceTimer(tx: any, output: Record<string, any>, event: TimelineEventRow) {
-    const requested = Number(output.silence_timer.pause_seconds);
-    const rounded = Number.isFinite(requested) ? Math.round(requested) : DEFAULT_SILENCE_TIMER_SECONDS;
-    const pauseSeconds = Math.max(MIN_SILENCE_TIMER_SECONDS, Math.min(MAX_SILENCE_TIMER_SECONDS, rounded));
-    await tx`
-      update "inception-1-test".silence_timers
-      set status = 'cancelled_by_agent',
-          updated_at = now()
-      where conversation_id = ${event.conversation_id}
-        and status in ('scheduled', 'paused_inactive')
-    `;
-
-    const activeRows = await tx<{ is_active: boolean }[]>`
-      select exists(
-        select 1
-        from "inception-1-test".active_dialog_presence
-        where browser_session_id = ${event.browser_session_id}
-          and character_id = ${event.character_id}
-          and conversation_id = ${event.conversation_id}
-          and expires_at > now()
-      ) as is_active
-    `;
-    const isActive = activeRows[0]?.is_active === true;
-    await tx`
-      insert into "inception-1-test".silence_timers (
-        id, browser_session_id, character_id, conversation_id, source_event_id,
-        generation, status, pause_seconds, deadline_at, remaining_ms, metadata
-      )
-      values (
-        ${newId()}, ${event.browser_session_id}, ${event.character_id}, ${event.conversation_id},
-        ${event.id}, 1, ${isActive ? 'scheduled' : 'paused_inactive'}, ${pauseSeconds},
-        case when ${isActive} then now() + (${pauseSeconds} || ' seconds')::interval else null end,
-        case when ${isActive} then null::integer else ${pauseSeconds * 1000}::integer end,
-        ${tx.json({ reason: output.silence_timer.reason ?? null })}
-      )
-    `;
-  }
 }
 
 function buildPrompt(prompt: ResolvedPrompt, runtimeInput: unknown): string {
@@ -489,6 +484,19 @@ function compactMessage(message: MessageRow) {
     timestamp: message.created_at,
     text: message.text,
     display_emotion: message.display_emotion,
+    media: (message.media ?? []).map((media) => ({
+      id: media.id,
+      type: media.media_type,
+      storage_bucket: media.storage_bucket,
+      storage_path: media.storage_path,
+      mime_type: media.mime_type,
+      width: media.width,
+      height: media.height,
+      alt_text: media.alt_text,
+      generation_prompt: media.generation_prompt ?? null,
+      provider: media.provider ?? null,
+      created_at: media.created_at ?? null,
+    })),
   };
 }
 
@@ -513,10 +521,174 @@ function buildAgentRunRecord(prompt: ResolvedPrompt, compiledInput: unknown): Re
   };
 }
 
-function clampSilencePauseSeconds(output: Record<string, any>): number {
+async function buildMultimodalPromptContents(
+  promptText: string,
+  messages: MessageRow[],
+  storage: StorageService,
+  config: AppConfig,
+): Promise<unknown[]> {
+  const candidates: Array<{ message: MessageRow; media: NonNullable<MessageRow['media']>[number] }> = [];
+  for (const message of [...messages].reverse()) {
+    for (const media of [...(message.media ?? [])].reverse()) {
+      if (media.media_type === 'image') {
+        candidates.push({ message, media });
+      }
+    }
+  }
+
+  const selected: unknown[] = [];
+  let usedBytes = 0;
+  for (const candidate of candidates) {
+    if (selected.length / 2 >= config.agentMultimodalImageLimit) break;
+    try {
+      const downloaded = await storage.downloadMedia(candidate.media);
+      if (usedBytes + downloaded.data.length > config.agentMultimodalImageByteBudget) continue;
+      usedBytes += downloaded.data.length;
+      selected.unshift({
+        inlineData: {
+          mimeType: downloaded.mimeType,
+          data: downloaded.data.toString('base64'),
+        },
+      });
+      selected.unshift({
+        text: `Recent chat image context. message_id=${candidate.message.id}; sender=${candidate.message.sender_type}; timestamp=${candidate.message.created_at}; alt=${candidate.media.alt_text ?? ''}; prompt=${candidate.media.generation_prompt ?? ''}`,
+      });
+    } catch (error) {
+      console.error('failed to attach multimodal image context', {
+        media_id: candidate.media.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return [...selected, { text: promptText }];
+}
+
+function countUnansweredCharacterMessages(messages: MessageRow[]): number {
+  let count = 0;
+  for (const message of [...messages].reverse()) {
+    if (message.sender_type === 'user') break;
+    if (message.sender_type === 'character') count += 1;
+  }
+  return count;
+}
+
+function extractActionImageMedia(output: Record<string, any>) {
+  const media = output.action?.media;
+  if (!media || media.ok !== true) return null;
+  const bucket = media.storage_bucket ?? media.bucket;
+  const path = media.storage_path ?? media.path;
+  if (typeof bucket !== 'string' || typeof path !== 'string') return null;
+  return {
+    bucket,
+    path,
+    mimeType: typeof media.mime_type === 'string' ? media.mime_type : media.mimeType ?? 'image/png',
+    altText: typeof media.alt_text === 'string' ? media.alt_text : media.altText ?? 'Generated PersonaPulse image',
+    prompt: typeof media.generation_prompt === 'string' ? media.generation_prompt : media.prompt ?? null,
+    width: typeof media.width === 'number' ? media.width : null,
+    height: typeof media.height === 'number' ? media.height : null,
+    provider: typeof media.provider === 'string' ? media.provider : 'gemini',
+    model: typeof media.model === 'string' ? media.model : null,
+  };
+}
+
+function mergeMcpMediaIntoCharacterOutput(value: unknown, automaticFunctionCallingHistory: unknown[]): unknown {
+  const output = value as Record<string, any>;
+  if (!output || typeof output !== 'object' || !output.action || typeof output.action !== 'object') return value;
+
+  const media = extractSuccessfulImageToolMedia(automaticFunctionCallingHistory);
+  if (!media) return value;
+
+  const action = output.action as Record<string, any>;
+  if (!['send_image', 'send_text_image', 'send_text'].includes(action.type)) return value;
+  const currentMedia = action.media;
+  if (!currentMedia || typeof currentMedia !== 'object' || currentMedia.ok !== true) {
+    action.media = media;
+  }
+
+  if (action.type === 'send_text') {
+    action.type = 'send_text_image';
+  }
+
+  return output;
+}
+
+function extractSuccessfulImageToolMedia(automaticFunctionCallingHistory: unknown[]): Record<string, any> | null {
+  for (const content of [...automaticFunctionCallingHistory].reverse()) {
+    const parts = Array.isArray((content as any)?.parts) ? (content as any).parts : [];
+    for (const part of [...parts].reverse()) {
+      const functionResponse = (part as any)?.functionResponse ?? (part as any)?.function_response;
+      if (functionResponse?.name !== 'generate_personapulse_image') continue;
+      const media = extractStructuredImageToolResult(functionResponse.response);
+      if (media) return media;
+    }
+  }
+  return null;
+}
+
+function extractStructuredImageToolResult(response: unknown): Record<string, any> | null {
+  if (!response || typeof response !== 'object') return null;
+  const record = response as Record<string, any>;
+  const direct = normalizeImageToolMedia(record);
+  if (direct) return direct;
+
+  const structured = normalizeImageToolMedia(record.structuredContent ?? record.structured_content);
+  if (structured) return structured;
+
+  const content = Array.isArray(record.content) ? record.content : [];
+  for (const item of content) {
+    if ((item as any)?.type !== 'text' || typeof (item as any).text !== 'string') continue;
+    try {
+      const parsed = JSON.parse((item as any).text);
+      const parsedMedia = normalizeImageToolMedia(parsed);
+      if (parsedMedia) return parsedMedia;
+    } catch (_) {
+      // MCP text content can be human-readable; only JSON tool payloads are useful here.
+    }
+  }
+
+  return null;
+}
+
+function normalizeImageToolMedia(value: unknown): Record<string, any> | null {
+  if (!value || typeof value !== 'object') return null;
+  const media = value as Record<string, any>;
+  const bucket = media.storage_bucket ?? media.bucket;
+  const path = media.storage_path ?? media.path;
+  if (media.ok !== true || typeof bucket !== 'string' || !bucket.trim() || typeof path !== 'string' || !path.trim()) {
+    return null;
+  }
+  return {
+    ...media,
+    ok: true,
+    storage_bucket: bucket,
+    storage_path: path,
+  };
+}
+
+function computeSilenceTimer(
+  output: Record<string, any>,
+  unansweredCharacterMessageCount: number,
+  config: AppConfig,
+): { pauseSeconds: number; stopUntilUser: boolean } {
+  if (output.silence_timer?.stop_until_user === true || unansweredCharacterMessageCount >= 7) {
+    return { pauseSeconds: config.silenceDefaultSeconds, stopUntilUser: true };
+  }
+
   const requested = Number(output.silence_timer?.pause_seconds);
-  const rounded = Number.isFinite(requested) ? Math.round(requested) : DEFAULT_SILENCE_TIMER_SECONDS;
-  return Math.max(MIN_SILENCE_TIMER_SECONDS, Math.min(MAX_SILENCE_TIMER_SECONDS, rounded));
+  const fallback = config.silenceDefaultSeconds;
+  const rounded = Number.isFinite(requested) ? Math.round(requested) : fallback;
+  const normalMax = Math.max(config.silenceNormalMinSeconds, config.silenceNormalMaxSeconds);
+  let pauseSeconds = Math.max(config.silenceNormalMinSeconds, Math.min(normalMax, rounded));
+
+  if (unansweredCharacterMessageCount >= 4) {
+    pauseSeconds = Math.max(pauseSeconds, config.silenceIgnoredPauseSeconds);
+  }
+
+  return {
+    pauseSeconds: Math.min(config.silenceAbsoluteMaxSeconds, pauseSeconds),
+    stopUntilUser: false,
+  };
 }
 
 async function insertAgentRun(tx: any, input: {

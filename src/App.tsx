@@ -224,6 +224,8 @@ export default function App() {
   const triggerSendTone = () => playCymbalBeep(880, 'sine', 0.15, 0.03);
   const triggerReceiveTone = () => playCymbalBeep(440, 'sine', 0.2, 0.04);
   const triggerBackBeep = () => playCymbalBeep(320, 'sawtooth', 0.12, 0.015);
+  const triggerMediaOpenTone = () => playCymbalBeep(620, 'triangle', 0.1, 0.025);
+  const triggerMediaCloseTone = () => playCymbalBeep(280, 'sine', 0.1, 0.018);
 
   const activeChar = characters.find(c => c.id === selectedCharId) || null;
   const currentSessions = activeChar ? (sessionsMap[activeChar.id] || []) : [];
@@ -762,6 +764,8 @@ export default function App() {
                         messages={currentSession.messages}
                         onSendMessage={handleSendMessage}
                         onRetryMessage={handleRetryMessage}
+                        onMediaOpen={triggerMediaOpenTone}
+                        onMediaClose={triggerMediaCloseTone}
                         isTyping={isCharacterTyping}
                         currentMood={currentMoodMap[activeChar.id] || 'Interfacing'}
                       />

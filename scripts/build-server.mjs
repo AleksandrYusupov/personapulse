@@ -31,10 +31,21 @@ await Promise.all([
     entryPoints: ['server/scripts/migrate.ts'],
     outfile: path.join(outDir, 'migrate.mjs'),
   }),
+  build({
+    ...commonOptions,
+    entryPoints: ['server/scripts/seed.ts'],
+    outfile: path.join(outDir, 'seed.mjs'),
+  }),
 ]);
 
 await fs.cp(
   path.join(projectRoot, 'server/db/migrations'),
   path.join(outDir, 'migrations'),
+  { recursive: true },
+);
+
+await fs.cp(
+  path.join(projectRoot, 'src/assets/images'),
+  path.join(outDir, 'assets/images'),
   { recursive: true },
 );

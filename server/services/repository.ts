@@ -156,6 +156,21 @@ export class Repository {
     return rows[0];
   }
 
+  async requireCharacterById(id: string): Promise<CharacterRow> {
+    const rows = await this.sql<CharacterRow[]>`
+      select *
+      from "inception-1-test".characters
+      where id = ${id}
+        and is_active = true
+        and deleted_at is null
+      limit 1
+    `;
+    if (!rows[0]) {
+      throw new HttpError(404, 'Character not found');
+    }
+    return rows[0];
+  }
+
   async listConversations(sessionId: string | undefined, sessionSecret: string | undefined, characterSlug: string): Promise<ConversationRow[]> {
     if (!sessionId || !sessionSecret) {
       throw new HttpError(401, 'Session headers are required');
@@ -582,6 +597,7 @@ export class Repository {
     latencyMs: number;
     imageMedia: Record<string, unknown> | null;
     pauseSeconds: number;
+    stopUntilUser: boolean;
     stageMs: Record<string, number>;
   }): Promise<CommitResult> {
     const [row] = await this.sql<CommitResult[]>`
@@ -600,6 +616,7 @@ export class Repository {
         ${input.latencyMs},
         ${input.imageMedia ? this.sql.json(input.imageMedia as any) : null},
         ${input.pauseSeconds},
+        ${input.stopUntilUser},
         ${this.sql.json(input.stageMs as any)}
       )
     `;
@@ -960,7 +977,7 @@ export class Repository {
       errors.push('response_schema must be a JSON object when present');
     }
     if (revision.agent_key === 'character_agent') {
-      const allowedTools = new Set(['generate_image']);
+      const allowedTools = new Set(['generate_personapulse_image']);
       for (const key of Object.keys(revision.tool_policy ?? {})) {
         if (!allowedTools.has(key)) errors.push(`tool_policy contains unsupported tool ${key}`);
       }

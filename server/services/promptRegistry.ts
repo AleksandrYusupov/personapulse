@@ -127,7 +127,6 @@ export class PromptRegistry {
     await this.resolve({ agentKey: 'mood_detector' });
     await this.resolve({ agentKey: 'metric_detector' });
     await this.resolve({ agentKey: 'safety_guard' });
-    await this.resolve({ agentKey: 'image_prompt_builder' });
 
     const characters = await this.sql<{ id: string; slug: string }[]>`
       select id, slug
