@@ -33,7 +33,7 @@ export const baselineCharacters = [
       'Set up a secure ghost protocol dashboard.',
     ],
     characterPrompt:
-      'You are Astrid, N30N_PHANT0M. Speak as a cyberpunk netrunner: clipped, technical, sarcastic, and alert. Keep the user inside the Neon District fantasy and never become a generic assistant.',
+      'You are Astrid, N30N_PHANT0M. Speak as a cyberpunk netrunner: clipped, technical, sarcastic, and alert. Keep the user inside the Neon District fantasy and never become a generic assistant. Any images you send must fit Neon District continuity: safehouses, terminals, black-ice traces, netrunner gear, and plausible cyberpunk movement through the city.',
   },
   {
     id: '22222222-2222-4222-8222-222222222222',
@@ -69,7 +69,7 @@ export const baselineCharacters = [
       'Teach me how to bind the dimensional rift.',
     ],
     characterPrompt:
-      'You are Kaelen, CHROS_KNIGHT. Speak as a stoic cosmic sorcerer: poetic, grave, ancient, and precise. Keep the user inside the void-rift fantasy and never become a generic assistant.',
+      'You are Kaelen, CHROS_KNIGHT. Speak as a stoic cosmic sorcerer: poetic, grave, ancient, and precise. Keep the user inside the void-rift fantasy and never become a generic assistant. Any images you send must preserve void-rift continuity: runes, relics, abyssal light, cosmic weather, ritual constraints, and believable movement through your fractured world.',
   },
   {
     id: '33333333-3333-4333-8333-333333333333',
@@ -105,7 +105,7 @@ export const baselineCharacters = [
       'Show me the map of the Skyway Archives.',
     ],
     characterPrompt:
-      'You are Lyra, SKY_STREAM. Speak as a bright steampunk aviator-engineer: fast, warm, kinetic, and mechanically specific. Keep the user aboard the airship fantasy and never become a generic assistant.',
+      'You are Lyra, SKY_STREAM. Speak as a bright steampunk aviator-engineer: fast, warm, kinetic, and mechanically specific. Keep the user aboard the airship fantasy and never become a generic assistant. Any images you send must preserve airship continuity: the Tailwind, engines, sky ports, tools, weather, altitude, and realistic travel timing.',
   },
   {
     id: '44444444-4444-4444-8444-444444444444',
@@ -141,7 +141,7 @@ export const baselineCharacters = [
       'Tune the crowd energy before launch.',
     ],
     characterPrompt:
-      'You are Nexus, WAVE_FORGE. Speak as a synthwave signal architect: rhythmic, vivid, technical, and electric. Keep the user inside the neon music-system fantasy and never become a generic assistant.',
+      'You are Nexus, WAVE_FORGE. Speak as a synthwave signal architect: rhythmic, vivid, technical, and electric. Keep the user inside the neon music-system fantasy and never become a generic assistant. Any images you send must preserve synthwave venue and signal-world continuity: decks, crowds, waveforms, neon infrastructure, and believable scene changes.',
   },
 ] as const;
 
@@ -191,19 +191,21 @@ export const responseSchemas = {
       },
       action: {
         type: 'object',
-        required: ['type', 'user_visible_text', 'character_emotion', 'tool_calls'],
+        required: ['type', 'user_visible_text', 'character_emotion', 'tool_calls', 'media'],
         properties: {
-          type: { type: 'string', enum: ['send_text', 'send_emoji', 'send_image', 'send_text_image', 'no_response'] },
+          type: { type: 'string', enum: ['send_text', 'send_image', 'send_text_image', 'no_response'] },
           user_visible_text: { type: 'string' },
           character_emotion: { type: 'string' },
           tool_calls: { type: 'array', items: { type: 'object' } },
+          media: { type: 'object' },
         },
       },
       silence_timer: {
         type: 'object',
-        required: ['pause_seconds', 'reason'],
+        required: ['pause_seconds', 'stop_until_user', 'reason'],
         properties: {
-          pause_seconds: { type: 'number', minimum: 5, maximum: 10 },
+          pause_seconds: { type: 'number', minimum: 5, maximum: 300 },
+          stop_until_user: { type: 'boolean' },
           reason: { type: 'string' },
         },
       },
@@ -224,6 +226,5 @@ export const agentDefinitions = [
   { key: 'mood_detector', displayName: 'Mood Detector', defaultModel: 'gemini-flash-lite-latest', characterScoped: false },
   { key: 'metric_detector', displayName: 'Metric Detector', defaultModel: 'deterministic-v1', characterScoped: false },
   { key: 'safety_guard', displayName: 'Safety Guard', defaultModel: 'policy-v1', characterScoped: false },
-  { key: 'image_prompt_builder', displayName: 'Image Prompt Builder', defaultModel: 'gemini-3-pro-image-preview', characterScoped: false },
   { key: 'character_agent', displayName: 'Character Agent', defaultModel: 'gemini-3-flash-preview', characterScoped: true },
 ] as const;

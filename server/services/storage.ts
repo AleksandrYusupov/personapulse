@@ -19,10 +19,14 @@ export class StorageService {
   }
 
   async createSignedUrl(media: MediaRow): Promise<string> {
+    return this.createSignedUrlForPath(media.storage_bucket, media.storage_path);
+  }
+
+  async createSignedUrlForPath(bucket: string, path: string): Promise<string> {
     const { data, error } = await this.supabase
       .storage
-      .from(media.storage_bucket)
-      .createSignedUrl(media.storage_path, 60 * 10);
+      .from(bucket)
+      .createSignedUrl(path, 60 * 10);
 
     if (error || !data?.signedUrl) {
       throw new Error(`Failed to create signed media URL: ${error?.message ?? 'unknown storage error'}`);
@@ -49,9 +53,12 @@ export class StorageService {
     eventId: string;
     data: Buffer;
     mimeType: string;
+    pathPrefix?: string;
   }): Promise<{ bucket: string; path: string }> {
-    const extension = input.mimeType === 'image/webp' ? 'webp' : 'png';
-    const path = `${input.conversationId}/${input.eventId}-${Date.now()}.${extension}`;
+    const extension = input.mimeType === 'image/webp' ? 'webp' : input.mimeType === 'image/jpeg' ? 'jpg' : 'png';
+    const path = input.pathPrefix
+      ? `${input.pathPrefix}.${extension}`
+      : `${input.conversationId}/${input.eventId}-${Date.now()}.${extension}`;
     const { error } = await this.supabase
       .storage
       .from(this.config.mediaBucket)
@@ -66,4 +73,33 @@ export class StorageService {
 
     return { bucket: this.config.mediaBucket, path };
   }
+
+  async downloadObject(bucket: string, path: string): Promise<{ data: Buffer; mimeType: string }> {
+    const { data, error } = await this.supabase
+      .storage
+      .from(bucket)
+      .download(path);
+
+    if (error || !data) {
+      throw new Error(`Failed to download storage object ${bucket}/${path}: ${error?.message ?? 'unknown storage error'}`);
+    }
+
+    const arrayBuffer = await data.arrayBuffer();
+    return {
+      data: Buffer.from(arrayBuffer),
+      mimeType: data.type || inferMimeType(path),
+    };
+  }
+
+  async downloadMedia(media: MediaRow): Promise<{ data: Buffer; mimeType: string }> {
+    return this.downloadObject(media.storage_bucket, media.storage_path);
+  }
+}
+
+function inferMimeType(path: string): string {
+  const lowered = path.toLowerCase();
+  if (lowered.endsWith('.jpg') || lowered.endsWith('.jpeg')) return 'image/jpeg';
+  if (lowered.endsWith('.webp')) return 'image/webp';
+  if (lowered.endsWith('.gif')) return 'image/gif';
+  return 'image/png';
 }

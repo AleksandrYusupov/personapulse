@@ -15,11 +15,13 @@ env:
   PROJECT_NUMBER: "875611365906"
   REGION: us-central1
   SERVICE: personapulse
+  IMAGE_MCP_SERVICE: personapulse-image-mcp
   MIGRATION_JOB: personapulse-migrate
+  SEED_JOB: personapulse-seed
   ARTIFACT_REPOSITORY: personapulse
   RUNTIME_SERVICE_ACCOUNT: personapulse-runtime@gen-lang-client-0861208488.iam.gserviceaccount.com
   IMAGE: us-central1-docker.pkg.dev/gen-lang-client-0861208488/personapulse/personapulse:${{ github.sha }}
-  FRONTEND_ORIGIN: https://personapulse-875611365906.us-central1.run.app
+  FRONTEND_ORIGIN: https://personapulse-gwvyscuxeq-uc.a.run.app
 
 jobs:
   deploy:
@@ -76,6 +78,7 @@ jobs:
           resolve_version gemini_api_key personapulse-gemini-api-key
           resolve_version admin_api_token personapulse-admin-api-token
           resolve_version session_secret_pepper personapulse-session-secret-pepper
+          resolve_version image_mcp_context_signing_secret personapulse-image-mcp-context-signing-secret
 
       - name: Deploy migration job
         run: |
@@ -99,6 +102,66 @@ jobs:
             --region="${REGION}" \
             --wait
 
+      - name: Deploy seed job
+        run: |
+          gcloud run jobs deploy "${SEED_JOB}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --image="${IMAGE}" \
+            --service-account="${RUNTIME_SERVICE_ACCOUNT}" \
+            --command=node \
+            --args=dist-server/seed.mjs \
+            --set-env-vars=NODE_ENV=production,SUPABASE_SCHEMA=inception-1-test,MEDIA_BUCKET=personapulse-media \
+            --set-secrets=SUPABASE_URL=personapulse-supabase-url:${{ steps.secrets.outputs.supabase_url }},SUPABASE_SERVICE_ROLE_KEY=personapulse-supabase-service-role-key:${{ steps.secrets.outputs.supabase_service_role_key }},SUPABASE_DATABASE_URL=personapulse-supabase-database-url:${{ steps.secrets.outputs.supabase_database_url }} \
+            --max-retries=0 \
+            --task-timeout=300 \
+            --quiet
+
+      - name: Run seed
+        run: |
+          gcloud run jobs execute "${SEED_JOB}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --wait
+
+      - name: Deploy private image MCP service
+        run: |
+          gcloud run deploy "${IMAGE_MCP_SERVICE}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --image="${IMAGE}" \
+            --service-account="${RUNTIME_SERVICE_ACCOUNT}" \
+            --no-allow-unauthenticated \
+            --cpu=1 \
+            --memory=1Gi \
+            --min-instances=0 \
+            --max-instances=2 \
+            --concurrency=4 \
+            --timeout=300 \
+            --no-cpu-throttling \
+            --set-env-vars=NODE_ENV=production,PROCESS_ROLE=image-mcp,SUPABASE_SCHEMA=inception-1-test,MEDIA_BUCKET=personapulse-media \
+            --set-secrets=SUPABASE_URL=personapulse-supabase-url:${{ steps.secrets.outputs.supabase_url }},SUPABASE_SERVICE_ROLE_KEY=personapulse-supabase-service-role-key:${{ steps.secrets.outputs.supabase_service_role_key }},SUPABASE_DATABASE_URL=personapulse-supabase-database-url:${{ steps.secrets.outputs.supabase_database_url }},GEMINI_API_KEY=personapulse-gemini-api-key:${{ steps.secrets.outputs.gemini_api_key }},IMAGE_MCP_CONTEXT_SIGNING_SECRET=personapulse-image-mcp-context-signing-secret:${{ steps.secrets.outputs.image_mcp_context_signing_secret }} \
+            --quiet
+
+      - name: Resolve image MCP service URL
+        id: image_mcp_url
+        run: |
+          set -euo pipefail
+          url="$(gcloud run services describe "${IMAGE_MCP_SERVICE}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --format='value(status.url)')"
+          echo "url=${url}" >> "${GITHUB_OUTPUT}"
+
+      - name: Grant main service image MCP invoke access
+        run: |
+          gcloud run services add-iam-policy-binding "${IMAGE_MCP_SERVICE}" \
+            --project="${PROJECT_ID}" \
+            --region="${REGION}" \
+            --member="serviceAccount:${RUNTIME_SERVICE_ACCOUNT}" \
+            --role="roles/run.invoker" \
+            --quiet
+
       - name: Deploy service
         id: deploy
         uses: google-github-actions/deploy-cloudrun@v3
@@ -117,8 +180,8 @@ jobs:
             --concurrency=20
             --timeout=300
             --no-cpu-throttling
-            --set-env-vars=NODE_ENV=production,PROCESS_ROLE=all,SUPABASE_SCHEMA=inception-1-test,MEDIA_BUCKET=personapulse-media,FRONTEND_ORIGIN=${{ env.FRONTEND_ORIGIN }}
-            --set-secrets=SUPABASE_URL=personapulse-supabase-url:${{ steps.secrets.outputs.supabase_url }},SUPABASE_SERVICE_ROLE_KEY=personapulse-supabase-service-role-key:${{ steps.secrets.outputs.supabase_service_role_key }},SUPABASE_DATABASE_URL=personapulse-supabase-database-url:${{ steps.secrets.outputs.supabase_database_url }},GEMINI_API_KEY=personapulse-gemini-api-key:${{ steps.secrets.outputs.gemini_api_key }},ADMIN_API_TOKEN=personapulse-admin-api-token:${{ steps.secrets.outputs.admin_api_token }},SESSION_SECRET_PEPPER=personapulse-session-secret-pepper:${{ steps.secrets.outputs.session_secret_pepper }}
+            --set-env-vars=NODE_ENV=production,PROCESS_ROLE=all,SUPABASE_SCHEMA=inception-1-test,MEDIA_BUCKET=personapulse-media,FRONTEND_ORIGIN=${{ env.FRONTEND_ORIGIN }},IMAGE_MCP_URL=${{ steps.image_mcp_url.outputs.url }}/mcp,IMAGE_MCP_AUDIENCE=${{ steps.image_mcp_url.outputs.url }},AGENT_MULTIMODAL_IMAGE_LIMIT=6,AGENT_MULTIMODAL_IMAGE_BYTE_BUDGET=12582912,SILENCE_NORMAL_MIN_SECONDS=5,SILENCE_NORMAL_MAX_SECONDS=10,SILENCE_DEFAULT_SECONDS=7,SILENCE_IGNORED_PAUSE_SECONDS=180,SILENCE_ABSOLUTE_MAX_SECONDS=300
+            --set-secrets=SUPABASE_URL=personapulse-supabase-url:${{ steps.secrets.outputs.supabase_url }},SUPABASE_SERVICE_ROLE_KEY=personapulse-supabase-service-role-key:${{ steps.secrets.outputs.supabase_service_role_key }},SUPABASE_DATABASE_URL=personapulse-supabase-database-url:${{ steps.secrets.outputs.supabase_database_url }},GEMINI_API_KEY=personapulse-gemini-api-key:${{ steps.secrets.outputs.gemini_api_key }},ADMIN_API_TOKEN=personapulse-admin-api-token:${{ steps.secrets.outputs.admin_api_token }},SESSION_SECRET_PEPPER=personapulse-session-secret-pepper:${{ steps.secrets.outputs.session_secret_pepper }},IMAGE_MCP_CONTEXT_SIGNING_SECRET=personapulse-image-mcp-context-signing-secret:${{ steps.secrets.outputs.image_mcp_context_signing_secret }}
 
       - name: Verify health
         run: |

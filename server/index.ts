@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import { loadConfig } from './config';
 import { createSql } from './db/postgres';
 import { createApp } from './http/app';
+import { createImageMcpApp } from './mcp/imageMcpApp';
 import { AgentPipeline } from './services/agentPipeline';
 import { GeminiService } from './services/gemini';
 import { PromptRegistry } from './services/promptRegistry';
@@ -13,19 +14,21 @@ import { SilenceWorker } from './workers/silenceWorker';
 const config = loadConfig();
 const sql = createSql(config.databaseUrl);
 const repository = new Repository(sql, config);
-const promptRegistry = new PromptRegistry(sql, config.promptCacheMaxAgeMs);
 const storage = new StorageService(config);
 const gemini = new GeminiService(config);
-const pipeline = new AgentPipeline(sql, config, repository, promptRegistry, gemini, storage);
+const promptRegistry = config.role === 'image-mcp' ? null : new PromptRegistry(sql, config.promptCacheMaxAgeMs);
+const pipeline = promptRegistry ? new AgentPipeline(sql, config, repository, promptRegistry, gemini, storage) : null;
 
 await repository.verifyDatabaseReady();
-await promptRegistry.verifyRequiredPrompts();
 await storage.verifyMediaBucket();
-promptRegistry.startRealtimeInvalidation({
-  supabaseUrl: config.supabaseUrl,
-  serviceRoleKey: config.supabaseServiceRoleKey,
-  schema: config.supabaseSchema,
-});
+if (promptRegistry) {
+  await promptRegistry.verifyRequiredPrompts();
+  promptRegistry.startRealtimeInvalidation({
+    supabaseUrl: config.supabaseUrl,
+    serviceRoleKey: config.supabaseServiceRoleKey,
+    schema: config.supabaseSchema,
+  });
+}
 
 const workerId = `${config.role}-${process.pid}`;
 const startedWorkers: Array<{ stop: () => void }> = [];
@@ -41,6 +44,7 @@ if (config.role === 'api' || config.role === 'all') {
 }
 
 if (config.role === 'agent-worker' || config.role === 'all') {
+  if (!pipeline) throw new Error('Agent worker requires prompt registry');
   const analysisWorker = new AgentWorker(
     repository,
     pipeline,
@@ -67,6 +71,16 @@ if (config.role === 'agent-worker' || config.role === 'all') {
   );
 }
 
+if (config.role === 'image-mcp') {
+  const app = createImageMcpApp(config, repository, storage, gemini);
+  const server = createServer(app);
+  server.listen(config.port, '0.0.0.0', () => {
+    console.log(`PersonaPulse image MCP listening on ${config.port}`);
+  });
+  process.on('SIGTERM', () => server.close());
+  process.on('SIGINT', () => server.close());
+}
+
 if (config.role === 'silence-worker' || config.role === 'all') {
   const worker = new SilenceWorker(sql, repository, `${workerId}:silence`);
   worker.start();
@@ -76,7 +90,7 @@ if (config.role === 'silence-worker' || config.role === 'all') {
 
 async function shutdown() {
   for (const worker of startedWorkers) worker.stop();
-  promptRegistry.stopRealtimeInvalidation();
+  promptRegistry?.stopRealtimeInvalidation();
   await sql.end({ timeout: 5 });
 }
 

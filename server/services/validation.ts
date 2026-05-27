@@ -1,4 +1,4 @@
-const actionTypes = new Set(['send_text', 'send_emoji', 'send_image', 'send_text_image', 'no_response']);
+const actionTypes = new Set(['send_text', 'send_image', 'send_text_image', 'no_response']);
 
 export function assertObject(value: unknown, label: string): asserts value is Record<string, any> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -29,6 +29,17 @@ export function validateCharacterOutput(value: unknown, eventId: string): Record
   }
   if (typeof value.silence_timer.pause_seconds !== 'number' || !Number.isFinite(value.silence_timer.pause_seconds)) {
     throw new Error('silence_timer.pause_seconds must be numeric');
+  }
+  if (['send_image', 'send_text_image'].includes(value.action.type)) {
+    assertObject(value.action.media, 'action.media');
+    if (value.action.media.ok !== true) {
+      throw new Error('Image action requires successful action.media from generate_personapulse_image');
+    }
+    const bucket = value.action.media.storage_bucket ?? value.action.media.bucket;
+    const path = value.action.media.storage_path ?? value.action.media.path;
+    if (typeof bucket !== 'string' || !bucket.trim() || typeof path !== 'string' || !path.trim()) {
+      throw new Error('Image action.media requires storage_bucket and storage_path');
+    }
   }
   if (value.safety_check.within_character !== true || value.safety_check.no_policy_violations !== true) {
     throw new Error('Character output failed safety_check');

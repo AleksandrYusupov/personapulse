@@ -1,4 +1,4 @@
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, Modality } from '@google/genai';
 import { AppConfig } from '../config';
 
 export class GeminiService {
@@ -12,6 +12,8 @@ export class GeminiService {
     model: string;
     systemInstruction: string;
     prompt: string;
+    contents?: unknown;
+    tools?: unknown[];
     responseSchema: unknown;
     temperature?: number;
     maxOutputTokens?: number;
@@ -19,13 +21,14 @@ export class GeminiService {
     return this.withRetries(async () => {
       const response = await this.ai.models.generateContent({
         model: input.model,
-        contents: input.prompt,
+        contents: (input.contents ?? input.prompt) as any,
         config: {
           systemInstruction: input.systemInstruction,
           responseMimeType: 'application/json',
           responseJsonSchema: input.responseSchema,
           temperature: input.temperature,
           maxOutputTokens: input.maxOutputTokens,
+          tools: input.tools as any,
         },
       });
 
@@ -44,13 +47,20 @@ export class GeminiService {
   async generateImage(input: {
     model: string;
     prompt: string;
+    parts?: unknown[];
+    aspectRatio?: string;
+    imageSize?: string;
   }): Promise<{ data: Buffer; mimeType: string }> {
     return this.withRetries(async () => {
       const response = await this.ai.models.generateContent({
         model: input.model,
-        contents: input.prompt,
+        contents: (input.parts ?? input.prompt) as any,
         config: {
-          responseModalities: ['IMAGE'] as any,
+          responseModalities: [Modality.IMAGE],
+          imageConfig: {
+            aspectRatio: input.aspectRatio ?? '3:4',
+            imageSize: input.imageSize ?? '1K',
+          },
         },
       });
 
