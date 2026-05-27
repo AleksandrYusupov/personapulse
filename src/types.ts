@@ -18,6 +18,7 @@ export interface Character {
   codename: string;
   avatar: string;
   avatarAssetKey?: string;
+  avatarObjectPosition?: string;
   shortDesc: string;
   longDesc: string;
   role: string;

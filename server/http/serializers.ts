@@ -9,6 +9,7 @@ export function serializeCharacter(row: CharacterRow) {
     codename: row.codename,
     avatar: row.avatar_storage_path ?? '',
     avatarAssetKey: row.avatar_storage_path ?? '',
+    avatarObjectPosition: typeof theme.avatarObjectPosition === 'string' ? theme.avatarObjectPosition : undefined,
     shortDesc: row.short_desc,
     longDesc: row.long_desc,
     role: row.role,

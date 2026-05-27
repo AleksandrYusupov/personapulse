@@ -143,6 +143,11 @@ export class PromptRegistry {
   }
 
   startRealtimeInvalidation(input: { supabaseUrl: string; serviceRoleKey: string; schema: 'inception-1-test' }): void {
+    if (typeof WebSocket === 'undefined') {
+      console.warn('Prompt Registry realtime invalidation disabled: WebSocket is unavailable in this Node.js runtime.');
+      return;
+    }
+
     const client = createClient(input.supabaseUrl, input.serviceRoleKey, {
       auth: {
         persistSession: false,
