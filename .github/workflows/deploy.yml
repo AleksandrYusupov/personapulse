@@ -51,35 +51,6 @@ jobs:
       - name: Push image
         run: docker push "${IMAGE}"
 
-      - name: Resolve Secret Manager versions
-        id: secrets
-        run: |
-          set -euo pipefail
-          resolve_version() {
-            local output_name="$1"
-            local secret_name="$2"
-            local version
-            version="$(gcloud secrets versions list "${secret_name}" \
-              --project="${PROJECT_ID}" \
-              --filter='state:ENABLED' \
-              --limit=1 \
-              --format='value(name)')"
-            if [ -z "${version}" ]; then
-              echo "No enabled version found for ${secret_name}" >&2
-              exit 1
-            fi
-            version="${version##*/}"
-            echo "${output_name}=${version}" >> "${GITHUB_OUTPUT}"
-          }
-
-          resolve_version supabase_url personapulse-supabase-url
-          resolve_version supabase_service_role_key personapulse-supabase-service-role-key
-          resolve_version supabase_database_url personapulse-supabase-database-url
-          resolve_version gemini_api_key personapulse-gemini-api-key
-          resolve_version admin_api_token personapulse-admin-api-token
-          resolve_version session_secret_pepper personapulse-session-secret-pepper
-          resolve_version image_mcp_context_signing_secret personapulse-image-mcp-context-signing-secret
-
       - name: Deploy migration job
         run: |
           gcloud run jobs deploy "${MIGRATION_JOB}" \
@@ -90,7 +61,7 @@ jobs:
             --command=node \
             --args=dist-server/migrate.mjs \
             --set-env-vars=NODE_ENV=production,SUPABASE_SCHEMA=inception-1-test \
-            --set-secrets=SUPABASE_DATABASE_URL=personapulse-supabase-database-url:${{ steps.secrets.outputs.supabase_database_url }} \
+            --set-secrets=SUPABASE_DATABASE_URL=personapulse-supabase-database-url:latest \
             --max-retries=0 \
             --task-timeout=300 \
             --quiet
@@ -112,7 +83,7 @@ jobs:
             --command=node \
             --args=dist-server/seed.mjs \
             --set-env-vars=NODE_ENV=production,SUPABASE_SCHEMA=inception-1-test,MEDIA_BUCKET=personapulse-media \
-            --set-secrets=SUPABASE_URL=personapulse-supabase-url:${{ steps.secrets.outputs.supabase_url }},SUPABASE_SERVICE_ROLE_KEY=personapulse-supabase-service-role-key:${{ steps.secrets.outputs.supabase_service_role_key }},SUPABASE_DATABASE_URL=personapulse-supabase-database-url:${{ steps.secrets.outputs.supabase_database_url }} \
+            --set-secrets=SUPABASE_URL=personapulse-supabase-url:latest,SUPABASE_SERVICE_ROLE_KEY=personapulse-supabase-service-role-key:latest,SUPABASE_DATABASE_URL=personapulse-supabase-database-url:latest \
             --max-retries=0 \
             --task-timeout=300 \
             --quiet
@@ -140,7 +111,7 @@ jobs:
             --timeout=300 \
             --no-cpu-throttling \
             --set-env-vars=NODE_ENV=production,PROCESS_ROLE=image-mcp,SUPABASE_SCHEMA=inception-1-test,MEDIA_BUCKET=personapulse-media \
-            --set-secrets=SUPABASE_URL=personapulse-supabase-url:${{ steps.secrets.outputs.supabase_url }},SUPABASE_SERVICE_ROLE_KEY=personapulse-supabase-service-role-key:${{ steps.secrets.outputs.supabase_service_role_key }},SUPABASE_DATABASE_URL=personapulse-supabase-database-url:${{ steps.secrets.outputs.supabase_database_url }},GEMINI_API_KEY=personapulse-gemini-api-key:${{ steps.secrets.outputs.gemini_api_key }},IMAGE_MCP_CONTEXT_SIGNING_SECRET=personapulse-image-mcp-context-signing-secret:${{ steps.secrets.outputs.image_mcp_context_signing_secret }} \
+            --set-secrets=SUPABASE_URL=personapulse-supabase-url:latest,SUPABASE_SERVICE_ROLE_KEY=personapulse-supabase-service-role-key:latest,SUPABASE_DATABASE_URL=personapulse-supabase-database-url:latest,GEMINI_API_KEY=personapulse-gemini-api-key:latest,IMAGE_MCP_CONTEXT_SIGNING_SECRET=personapulse-image-mcp-context-signing-secret:latest \
             --quiet
 
       - name: Resolve image MCP service URL
@@ -181,7 +152,7 @@ jobs:
             --timeout=300
             --no-cpu-throttling
             --set-env-vars=NODE_ENV=production,PROCESS_ROLE=all,SUPABASE_SCHEMA=inception-1-test,MEDIA_BUCKET=personapulse-media,FRONTEND_ORIGIN=${{ env.FRONTEND_ORIGIN }},IMAGE_MCP_URL=${{ steps.image_mcp_url.outputs.url }}/mcp,IMAGE_MCP_AUDIENCE=${{ steps.image_mcp_url.outputs.url }},AGENT_MULTIMODAL_IMAGE_LIMIT=6,AGENT_MULTIMODAL_IMAGE_BYTE_BUDGET=12582912,SILENCE_NORMAL_MIN_SECONDS=5,SILENCE_NORMAL_MAX_SECONDS=10,SILENCE_DEFAULT_SECONDS=7,SILENCE_IGNORED_PAUSE_SECONDS=180,SILENCE_ABSOLUTE_MAX_SECONDS=300
-            --set-secrets=SUPABASE_URL=personapulse-supabase-url:${{ steps.secrets.outputs.supabase_url }},SUPABASE_SERVICE_ROLE_KEY=personapulse-supabase-service-role-key:${{ steps.secrets.outputs.supabase_service_role_key }},SUPABASE_DATABASE_URL=personapulse-supabase-database-url:${{ steps.secrets.outputs.supabase_database_url }},GEMINI_API_KEY=personapulse-gemini-api-key:${{ steps.secrets.outputs.gemini_api_key }},ADMIN_API_TOKEN=personapulse-admin-api-token:${{ steps.secrets.outputs.admin_api_token }},SESSION_SECRET_PEPPER=personapulse-session-secret-pepper:${{ steps.secrets.outputs.session_secret_pepper }},IMAGE_MCP_CONTEXT_SIGNING_SECRET=personapulse-image-mcp-context-signing-secret:${{ steps.secrets.outputs.image_mcp_context_signing_secret }}
+            --set-secrets=SUPABASE_URL=personapulse-supabase-url:latest,SUPABASE_SERVICE_ROLE_KEY=personapulse-supabase-service-role-key:latest,SUPABASE_DATABASE_URL=personapulse-supabase-database-url:latest,GEMINI_API_KEY=personapulse-gemini-api-key:latest,ADMIN_API_TOKEN=personapulse-admin-api-token:latest,SESSION_SECRET_PEPPER=personapulse-session-secret-pepper:latest,IMAGE_MCP_CONTEXT_SIGNING_SECRET=personapulse-image-mcp-context-signing-secret:latest
 
       - name: Verify health
         run: |
