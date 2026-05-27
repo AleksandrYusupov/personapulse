@@ -10,24 +10,32 @@ permissions:
   contents: read
   id-token: write
 
-env:
-  PROJECT_ID: gen-lang-client-0861208488
-  PROJECT_NUMBER: "875611365906"
-  REGION: us-central1
-  SERVICE: personapulse
-  IMAGE_MCP_SERVICE: personapulse-image-mcp
-  MIGRATION_JOB: personapulse-migrate
-  SEED_JOB: personapulse-seed
-  ARTIFACT_REPOSITORY: personapulse
-  RUNTIME_SERVICE_ACCOUNT: personapulse-runtime@gen-lang-client-0861208488.iam.gserviceaccount.com
-  IMAGE: us-central1-docker.pkg.dev/gen-lang-client-0861208488/personapulse/personapulse:${{ github.sha }}
-  FRONTEND_ORIGIN: https://personapulse-gwvyscuxeq-uc.a.run.app
-
 jobs:
   deploy:
     name: Deploy to Cloud Run
     runs-on: ubuntu-latest
     environment: production
+    env:
+      PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      PROJECT_NUMBER: ${{ vars.GCP_PROJECT_NUMBER }}
+      REGION: ${{ vars.GCP_REGION }}
+      SERVICE: ${{ vars.CLOUD_RUN_SERVICE }}
+      IMAGE_MCP_SERVICE: ${{ vars.IMAGE_MCP_SERVICE }}
+      MIGRATION_JOB: ${{ vars.MIGRATION_JOB }}
+      SEED_JOB: ${{ vars.SEED_JOB }}
+      ARTIFACT_REPOSITORY: ${{ vars.ARTIFACT_REPOSITORY }}
+      RUNTIME_SERVICE_ACCOUNT: ${{ vars.RUNTIME_SERVICE_ACCOUNT }}
+      IMAGE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.ARTIFACT_REPOSITORY }}/${{ vars.CLOUD_RUN_SERVICE }}:${{ github.sha }}
+      FRONTEND_ORIGIN: ${{ vars.FRONTEND_ORIGIN }}
+      SUPABASE_SCHEMA: ${{ vars.SUPABASE_SCHEMA }}
+      MEDIA_BUCKET: ${{ vars.MEDIA_BUCKET }}
+      SUPABASE_URL_SECRET_NAME: ${{ vars.SUPABASE_URL_SECRET_NAME }}
+      SUPABASE_SERVICE_ROLE_KEY_SECRET_NAME: ${{ vars.SUPABASE_SERVICE_ROLE_KEY_SECRET_NAME }}
+      SUPABASE_DATABASE_URL_SECRET_NAME: ${{ vars.SUPABASE_DATABASE_URL_SECRET_NAME }}
+      GEMINI_API_KEY_SECRET_NAME: ${{ vars.GEMINI_API_KEY_SECRET_NAME }}
+      ADMIN_API_TOKEN_SECRET_NAME: ${{ vars.ADMIN_API_TOKEN_SECRET_NAME }}
+      SESSION_SECRET_PEPPER_SECRET_NAME: ${{ vars.SESSION_SECRET_PEPPER_SECRET_NAME }}
+      IMAGE_MCP_CONTEXT_SIGNING_SECRET_NAME: ${{ vars.IMAGE_MCP_CONTEXT_SIGNING_SECRET_NAME }}
 
     steps:
       - name: Checkout
@@ -36,8 +44,8 @@ jobs:
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v3
         with:
-          workload_identity_provider: projects/875611365906/locations/global/workloadIdentityPools/github-actions/providers/personapulse
-          service_account: personapulse-deploy@gen-lang-client-0861208488.iam.gserviceaccount.com
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
 
       - name: Setup gcloud
         uses: google-github-actions/setup-gcloud@v3
@@ -60,8 +68,8 @@ jobs:
             --service-account="${RUNTIME_SERVICE_ACCOUNT}" \
             --command=node \
             --args=dist-server/migrate.mjs \
-            --set-env-vars=NODE_ENV=production,SUPABASE_SCHEMA=inception-1-test \
-            --set-secrets=SUPABASE_DATABASE_URL=personapulse-supabase-database-url:latest \
+            --set-env-vars=NODE_ENV=production,SUPABASE_SCHEMA="${SUPABASE_SCHEMA}" \
+            --set-secrets=SUPABASE_DATABASE_URL="${SUPABASE_DATABASE_URL_SECRET_NAME}:latest" \
             --max-retries=0 \
             --task-timeout=300 \
             --quiet
@@ -82,8 +90,8 @@ jobs:
             --service-account="${RUNTIME_SERVICE_ACCOUNT}" \
             --command=node \
             --args=dist-server/seed.mjs \
-            --set-env-vars=NODE_ENV=production,SUPABASE_SCHEMA=inception-1-test,MEDIA_BUCKET=personapulse-media \
-            --set-secrets=SUPABASE_URL=personapulse-supabase-url:latest,SUPABASE_SERVICE_ROLE_KEY=personapulse-supabase-service-role-key:latest,SUPABASE_DATABASE_URL=personapulse-supabase-database-url:latest \
+            --set-env-vars=NODE_ENV=production,SUPABASE_SCHEMA="${SUPABASE_SCHEMA}",MEDIA_BUCKET="${MEDIA_BUCKET}" \
+            --set-secrets=SUPABASE_URL="${SUPABASE_URL_SECRET_NAME}:latest",SUPABASE_SERVICE_ROLE_KEY="${SUPABASE_SERVICE_ROLE_KEY_SECRET_NAME}:latest",SUPABASE_DATABASE_URL="${SUPABASE_DATABASE_URL_SECRET_NAME}:latest" \
             --max-retries=0 \
             --task-timeout=300 \
             --quiet
@@ -110,8 +118,8 @@ jobs:
             --concurrency=4 \
             --timeout=300 \
             --no-cpu-throttling \
-            --set-env-vars=NODE_ENV=production,PROCESS_ROLE=image-mcp,SUPABASE_SCHEMA=inception-1-test,MEDIA_BUCKET=personapulse-media \
-            --set-secrets=SUPABASE_URL=personapulse-supabase-url:latest,SUPABASE_SERVICE_ROLE_KEY=personapulse-supabase-service-role-key:latest,SUPABASE_DATABASE_URL=personapulse-supabase-database-url:latest,GEMINI_API_KEY=personapulse-gemini-api-key:latest,IMAGE_MCP_CONTEXT_SIGNING_SECRET=personapulse-image-mcp-context-signing-secret:latest \
+            --set-env-vars=NODE_ENV=production,PROCESS_ROLE=image-mcp,SUPABASE_SCHEMA="${SUPABASE_SCHEMA}",MEDIA_BUCKET="${MEDIA_BUCKET}" \
+            --set-secrets=SUPABASE_URL="${SUPABASE_URL_SECRET_NAME}:latest",SUPABASE_SERVICE_ROLE_KEY="${SUPABASE_SERVICE_ROLE_KEY_SECRET_NAME}:latest",SUPABASE_DATABASE_URL="${SUPABASE_DATABASE_URL_SECRET_NAME}:latest",GEMINI_API_KEY="${GEMINI_API_KEY_SECRET_NAME}:latest",IMAGE_MCP_CONTEXT_SIGNING_SECRET="${IMAGE_MCP_CONTEXT_SIGNING_SECRET_NAME}:latest" \
             --quiet
 
       - name: Resolve image MCP service URL
@@ -137,9 +145,9 @@ jobs:
         id: deploy
         uses: google-github-actions/deploy-cloudrun@v3
         with:
-          service: personapulse
-          region: us-central1
-          project_id: gen-lang-client-0861208488
+          service: ${{ env.SERVICE }}
+          region: ${{ env.REGION }}
+          project_id: ${{ env.PROJECT_ID }}
           image: ${{ env.IMAGE }}
           flags: >-
             --allow-unauthenticated
@@ -151,11 +159,11 @@ jobs:
             --concurrency=20
             --timeout=300
             --no-cpu-throttling
-            --set-env-vars=NODE_ENV=production,PROCESS_ROLE=all,SUPABASE_SCHEMA=inception-1-test,MEDIA_BUCKET=personapulse-media,FRONTEND_ORIGIN=${{ env.FRONTEND_ORIGIN }},IMAGE_MCP_URL=${{ steps.image_mcp_url.outputs.url }}/mcp,IMAGE_MCP_AUDIENCE=${{ steps.image_mcp_url.outputs.url }},AGENT_MULTIMODAL_IMAGE_LIMIT=6,AGENT_MULTIMODAL_IMAGE_BYTE_BUDGET=12582912,SILENCE_NORMAL_MIN_SECONDS=5,SILENCE_NORMAL_MAX_SECONDS=10,SILENCE_DEFAULT_SECONDS=7,SILENCE_IGNORED_PAUSE_SECONDS=180,SILENCE_ABSOLUTE_MAX_SECONDS=300
-            --set-secrets=SUPABASE_URL=personapulse-supabase-url:latest,SUPABASE_SERVICE_ROLE_KEY=personapulse-supabase-service-role-key:latest,SUPABASE_DATABASE_URL=personapulse-supabase-database-url:latest,GEMINI_API_KEY=personapulse-gemini-api-key:latest,ADMIN_API_TOKEN=personapulse-admin-api-token:latest,SESSION_SECRET_PEPPER=personapulse-session-secret-pepper:latest,IMAGE_MCP_CONTEXT_SIGNING_SECRET=personapulse-image-mcp-context-signing-secret:latest
+            --set-env-vars=NODE_ENV=production,PROCESS_ROLE=all,SUPABASE_SCHEMA=${{ env.SUPABASE_SCHEMA }},MEDIA_BUCKET=${{ env.MEDIA_BUCKET }},FRONTEND_ORIGIN=${{ env.FRONTEND_ORIGIN }},IMAGE_MCP_URL=${{ steps.image_mcp_url.outputs.url }}/mcp,IMAGE_MCP_AUDIENCE=${{ steps.image_mcp_url.outputs.url }},AGENT_MULTIMODAL_IMAGE_LIMIT=6,AGENT_MULTIMODAL_IMAGE_BYTE_BUDGET=12582912,SILENCE_NORMAL_MIN_SECONDS=5,SILENCE_NORMAL_MAX_SECONDS=10,SILENCE_DEFAULT_SECONDS=7,SILENCE_IGNORED_PAUSE_SECONDS=180,SILENCE_ABSOLUTE_MAX_SECONDS=300
+            --set-secrets=SUPABASE_URL=${{ env.SUPABASE_URL_SECRET_NAME }}:latest,SUPABASE_SERVICE_ROLE_KEY=${{ env.SUPABASE_SERVICE_ROLE_KEY_SECRET_NAME }}:latest,SUPABASE_DATABASE_URL=${{ env.SUPABASE_DATABASE_URL_SECRET_NAME }}:latest,GEMINI_API_KEY=${{ env.GEMINI_API_KEY_SECRET_NAME }}:latest,ADMIN_API_TOKEN=${{ env.ADMIN_API_TOKEN_SECRET_NAME }}:latest,SESSION_SECRET_PEPPER=${{ env.SESSION_SECRET_PEPPER_SECRET_NAME }}:latest,IMAGE_MCP_CONTEXT_SIGNING_SECRET=${{ env.IMAGE_MCP_CONTEXT_SIGNING_SECRET_NAME }}:latest
 
       - name: Verify health
         run: |
           set -euo pipefail
           curl --fail --silent --show-error "${{ steps.deploy.outputs.url }}/api/v1/health" | tee /tmp/personapulse-health.json
-          grep -q '"schema":"inception-1-test"' /tmp/personapulse-health.json
+          grep -q "\"schema\":\"${SUPABASE_SCHEMA}\"" /tmp/personapulse-health.json
