@@ -96,3 +96,10 @@ export interface ProcessingJobRow {
   created_at?: string;
   updated_at?: string;
 }
+
+export interface ConversationMetricSnapshotRow {
+  event_id: string;
+  snapshot: Record<string, any>;
+  delta: Record<string, any> | null;
+  created_at: string;
+}

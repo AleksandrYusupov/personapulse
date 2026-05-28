@@ -1,6 +1,6 @@
 import type { Sql } from 'postgres';
 import { AppConfig } from '../config';
-import { CharacterRow, ConversationRow, MessageRow, ProcessingJobRow, TimelineEventRow } from '../domain';
+import { CharacterRow, ConversationMetricSnapshotRow, ConversationRow, MessageRow, ProcessingJobRow, TimelineEventRow } from '../domain';
 import { hashSessionSecret, hashText, newId, newSessionSecret } from '../util/crypto';
 import { HttpError } from '../util/http';
 
@@ -343,6 +343,26 @@ export class Repository {
     }
 
     return messages.map((message) => ({ ...message, media: mediaByMessage.get(message.id) ?? [] }));
+  }
+
+  async getLatestConversationMetrics(sessionId: string, conversationId: string): Promise<ConversationMetricSnapshotRow | null> {
+    await this.requireConversation(sessionId, conversationId);
+    const [row] = await this.sql<ConversationMetricSnapshotRow[]>`
+      select
+        ms.event_id,
+        ms.snapshot,
+        d.delta,
+        ms.created_at
+      from "inception-1-test".metric_snapshots ms
+      join "inception-1-test".timeline_events e on e.id = ms.event_id
+      left join "inception-1-test".metric_deltas d on d.event_id = ms.event_id
+      where ms.conversation_id = ${conversationId}
+        and ms.browser_session_id = ${sessionId}
+        and e.processing_status = 'active'
+      order by e.sequence_no desc, ms.created_at desc
+      limit 1
+    `;
+    return row ?? null;
   }
 
   async postUserMessage(

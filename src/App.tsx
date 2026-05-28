@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { CHARACTER_AVATAR_ASSETS } from './data';
-import { Character, DialogSession, Message } from './types';
+import { Character, DialogMetricsSnapshot, DialogSession, Message } from './types';
 import CharacterCard from './components/CharacterCard';
 import SidebarDrawer from './components/SidebarDrawer';
 import CharacterPanel from './components/CharacterPanel';
@@ -18,6 +18,7 @@ import {
   listConversations,
   createConversation,
   deleteConversation,
+  fetchConversationMetrics,
   listMessages,
   sendMessage,
   setActiveDialog,
@@ -142,6 +143,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('ALL');
   const [currentMoodMap, setCurrentMoodMap] = useState<Record<string, string>>({});
+  const [metricsMap, setMetricsMap] = useState<Record<string, DialogMetricsSnapshot | null>>({});
   const [typingMap, setTypingMap] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -167,6 +169,7 @@ export default function App() {
         setSelectedCharId(null);
         setSessionsMap({});
         setActiveSessionIdMap({});
+        setMetricsMap({});
         setCharacters(loadedCharacters.map(withResolvedAvatar));
         setError(null);
       }
@@ -248,6 +251,7 @@ export default function App() {
   const currentSessions = activeChar ? (sessionsMap[activeChar.id] || []) : [];
   const currentActiveSessionId = activeChar ? activeSessionIdMap[activeChar.id] : '';
   const currentSession = currentSessions.find(s => s.id === currentActiveSessionId) || currentSessions[0] || null;
+  const currentMetrics = currentSession && !currentSession.isPending ? metricsMap[currentSession.id] ?? null : null;
   const hasSendingUserMessage = currentSession?.messages.some(message => message.sender === 'user' && message.sendStatus === 'sending') ?? false;
   const isCharacterTyping = Boolean(activeChar && typingMap[activeChar.id]) && !hasSendingUserMessage;
 
@@ -337,6 +341,11 @@ export default function App() {
     }
   };
 
+  const refreshConversationMetrics = async (session: BrowserSession, conversationId: string) => {
+    const metrics = await fetchConversationMetrics(session, conversationId);
+    setMetricsMap(prev => ({ ...prev, [conversationId]: metrics }));
+  };
+
   const loadConversationsForCharacter = async (characterId: string, session = browserSession) => {
     if (!session) return;
     let conversations = await listConversations(session, characterId);
@@ -375,7 +384,10 @@ export default function App() {
       return prev[characterId] === nextActiveId ? prev : { ...prev, [characterId]: nextActiveId };
     });
     await flushPendingSends(session, characterId, primaryConversationId);
-    await refreshMessages(session, characterId, primaryConversationId);
+    await Promise.all([
+      refreshMessages(session, characterId, primaryConversationId),
+      refreshConversationMetrics(session, primaryConversationId),
+    ]);
   };
 
   const handleSelectCharacter = (character: Character) => {
@@ -417,7 +429,10 @@ export default function App() {
     triggerClickBeep();
     setActiveSessionIdMap(prev => ({ ...prev, [activeChar.id]: sessionId }));
     if (isPendingSessionId(sessionId)) return;
-    refreshMessages(browserSession, activeChar.id, sessionId).catch(err => setError(err instanceof Error ? err.message : String(err)));
+    Promise.all([
+      refreshMessages(browserSession, activeChar.id, sessionId),
+      refreshConversationMetrics(browserSession, sessionId),
+    ]).catch(err => setError(err instanceof Error ? err.message : String(err)));
   };
 
   const handleSendMessage = (text: string) => {
@@ -555,6 +570,7 @@ export default function App() {
       if (event.event !== 'message.created') return;
       const message = (event.data as { message?: Message }).message;
       if (!message) return;
+      void refreshConversationMetrics(browserSession, conversationId).catch(err => setError(err instanceof Error ? err.message : String(err)));
       setSessionsMap(prev => ({
         ...prev,
         [characterId]: (prev[characterId] || []).map(session =>
@@ -760,6 +776,7 @@ export default function App() {
                       <CharacterPanel
                         character={activeChar}
                         currentMood={currentMoodMap[activeChar.id] || 'Interfacing'}
+                        metrics={currentMetrics}
                         onSelectPrompt={(text) => handleSendMessage(text)}
                       />
                     )}

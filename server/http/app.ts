@@ -5,7 +5,7 @@ import { AppConfig } from '../config';
 import { Repository } from '../services/repository';
 import { StorageService } from '../services/storage';
 import { asyncHandler, HttpError, optionalString, requireString } from '../util/http';
-import { serializeCharacter, serializeConversation, serializeMessage } from './serializers';
+import { serializeCharacter, serializeConversation, serializeConversationMetrics, serializeMessage } from './serializers';
 
 interface AuthedRequest extends Request {
   sessionId: string;
@@ -99,6 +99,11 @@ export function createApp(config: AppConfig, repository: Repository, storage: St
     const limit = Math.min(Number(req.query.limit ?? 50) || 50, 100);
     const messages = await repository.listMessages(req.sessionId, req.params.conversationId, limit);
     res.json({ messages: await Promise.all(messages.map((message) => serializeMessage(message, storage))) });
+  }));
+
+  app.get('/api/v1/conversations/:conversationId/metrics', asyncHandler(async (req: AuthedRequest, res) => {
+    const metrics = await repository.getLatestConversationMetrics(req.sessionId, req.params.conversationId);
+    res.json({ metrics: serializeConversationMetrics(metrics) });
   }));
 
   app.post('/api/v1/conversations/:conversationId/messages', asyncHandler(async (req: Request, res) => {
