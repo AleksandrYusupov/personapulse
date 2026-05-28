@@ -1,4 +1,4 @@
-import { Character, DialogSession, Message } from '../types';
+import { Character, DialogMetricsSnapshot, DialogSession, Message } from '../types';
 
 const SESSION_ID_KEY = 'personaPulse.sessionId';
 const SESSION_SECRET_KEY = 'personaPulse.sessionSecret';
@@ -147,6 +147,14 @@ export async function listMessages(session: BrowserSession, conversationId: stri
     `/api/v1/conversations/${encodeURIComponent(conversationId)}/messages?limit=100`,
   );
   return body.messages;
+}
+
+export async function fetchConversationMetrics(session: BrowserSession, conversationId: string): Promise<DialogMetricsSnapshot | null> {
+  const body = await requestJson<{ metrics: DialogMetricsSnapshot | null }>(
+    session,
+    `/api/v1/conversations/${encodeURIComponent(conversationId)}/metrics`,
+  );
+  return body.metrics;
 }
 
 export async function sendMessage(

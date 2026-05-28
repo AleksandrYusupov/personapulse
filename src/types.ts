@@ -60,3 +60,22 @@ export interface MessageMedia {
   width?: number | null;
   height?: number | null;
 }
+
+export type DialogMetricDirection = 'up' | 'down' | 'stable';
+export type DialogMetricImpact = 'better' | 'worse' | 'stable';
+
+export interface DialogMetric {
+  key: string;
+  label: string;
+  value: number;
+  delta: number | null;
+  direction: DialogMetricDirection;
+  impact: DialogMetricImpact;
+}
+
+export interface DialogMetricsSnapshot {
+  eventId: string;
+  generatedAt: string;
+  overallDialogQuality: number;
+  metrics: DialogMetric[];
+}

@@ -1,14 +1,16 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { Character } from '../types';
+import { Character, DialogMetricsSnapshot } from '../types';
+import DialogMetricsPanel from './DialogMetricsPanel';
 
 interface CharacterPanelProps {
   character: Character;
   currentMood?: string;
+  metrics: DialogMetricsSnapshot | null;
   onSelectPrompt: (promptText: string) => void;
 }
 
-export default function CharacterPanel({ character, currentMood, onSelectPrompt }: CharacterPanelProps) {
+export default function CharacterPanel({ character, currentMood, metrics, onSelectPrompt }: CharacterPanelProps) {
   return (
     <div className="flex flex-col h-full bg-[#0D1114]/20 p-6 overflow-y-auto no-scrollbar justify-start items-center pt-10 pb-6 gap-6">
       
@@ -85,6 +87,7 @@ export default function CharacterPanel({ character, currentMood, onSelectPrompt 
           </div>
         </div>
       </motion.div>
+      <DialogMetricsPanel metrics={metrics} />
     </div>
   );
 }
