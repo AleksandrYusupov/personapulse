@@ -117,7 +117,7 @@ jobs:
             --max-instances=2 \
             --concurrency=4 \
             --timeout=300 \
-            --no-cpu-throttling \
+            --cpu-throttling \
             --set-env-vars=NODE_ENV=production,PROCESS_ROLE=image-mcp,SUPABASE_SCHEMA="${SUPABASE_SCHEMA}",MEDIA_BUCKET="${MEDIA_BUCKET}" \
             --set-secrets=SUPABASE_URL="${SUPABASE_URL_SECRET_NAME}:latest",SUPABASE_SERVICE_ROLE_KEY="${SUPABASE_SERVICE_ROLE_KEY_SECRET_NAME}:latest",SUPABASE_DATABASE_URL="${SUPABASE_DATABASE_URL_SECRET_NAME}:latest",GEMINI_API_KEY="${GEMINI_API_KEY_SECRET_NAME}:latest",IMAGE_MCP_CONTEXT_SIGNING_SECRET="${IMAGE_MCP_CONTEXT_SIGNING_SECRET_NAME}:latest" \
             --quiet
@@ -154,11 +154,11 @@ jobs:
             --service-account=${{ env.RUNTIME_SERVICE_ACCOUNT }}
             --cpu=1
             --memory=1Gi
-            --min-instances=1
+            --min-instances=0
             --max-instances=1
             --concurrency=20
             --timeout=300
-            --no-cpu-throttling
+            --cpu-throttling
             --set-env-vars=NODE_ENV=production,PROCESS_ROLE=all,SUPABASE_SCHEMA=${{ env.SUPABASE_SCHEMA }},MEDIA_BUCKET=${{ env.MEDIA_BUCKET }},FRONTEND_ORIGIN=${{ env.FRONTEND_ORIGIN }},IMAGE_MCP_URL=${{ steps.image_mcp_url.outputs.url }}/mcp,IMAGE_MCP_AUDIENCE=${{ steps.image_mcp_url.outputs.url }},AGENT_MULTIMODAL_IMAGE_LIMIT=6,AGENT_MULTIMODAL_IMAGE_BYTE_BUDGET=12582912,SILENCE_NORMAL_MIN_SECONDS=5,SILENCE_NORMAL_MAX_SECONDS=10,SILENCE_DEFAULT_SECONDS=7,SILENCE_IGNORED_PAUSE_SECONDS=180,SILENCE_ABSOLUTE_MAX_SECONDS=300
             --set-secrets=SUPABASE_URL=${{ env.SUPABASE_URL_SECRET_NAME }}:latest,SUPABASE_SERVICE_ROLE_KEY=${{ env.SUPABASE_SERVICE_ROLE_KEY_SECRET_NAME }}:latest,SUPABASE_DATABASE_URL=${{ env.SUPABASE_DATABASE_URL_SECRET_NAME }}:latest,GEMINI_API_KEY=${{ env.GEMINI_API_KEY_SECRET_NAME }}:latest,ADMIN_API_TOKEN=${{ env.ADMIN_API_TOKEN_SECRET_NAME }}:latest,SESSION_SECRET_PEPPER=${{ env.SESSION_SECRET_PEPPER_SECRET_NAME }}:latest,IMAGE_MCP_CONTEXT_SIGNING_SECRET=${{ env.IMAGE_MCP_CONTEXT_SIGNING_SECRET_NAME }}:latest
 
